@@ -5,7 +5,7 @@ services:
     container_name: mach-moto-server
     build: .
     ports:
-      - "3333:3333"
+      - 127.0.0.1:3333:3333
     restart: unless-stopped
     environment:
       - PORT=3333
