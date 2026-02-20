@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  multiplayer:
+    container_name: mach-moto-server
+    build: .
+    ports:
+      - "3333:3333"
+    restart: unless-stopped
+    environment:
+      - PORT=3333
+      - NODE_ENV=production
