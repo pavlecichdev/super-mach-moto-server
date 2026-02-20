@@ -3,6 +3,26 @@ import http from "http";
 import { Server, Socket } from "socket.io";
 import { PlayerUpdateData } from "./types";
 
+import Database from "better-sqlite3";
+
+// 1. Initialize DB (creates leaderboard.db in your root folder)
+const db = new Database("leaderboard.db");
+
+// 2. Create the table if it doesn't exist
+db.exec(`
+    CREATE TABLE IF NOT EXISTS times (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level INTEGER,
+        playerName TEXT,
+        time REAL,
+        date_achieved DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`);
+
+// 3. Prepare our SQL statements for maximum performance
+const insertTime = db.prepare("INSERT INTO times (level, playerName, time) VALUES (?, ?, ?)");
+const getTopTimes = db.prepare("SELECT playerName, time FROM times WHERE level = ? ORDER BY time ASC LIMIT 10");
+
 const app = express();
 const server = http.createServer(app);
 
@@ -38,13 +58,17 @@ const io = new Server(server, {
 
 // Helper function to count players and broadcast to all connected clients
 function broadcastCounts() {
-  const counts: Record<number, number> = {};
-  // Assuming you have 4 levels total. Adjust if you have more!
+  // Change the record type to string so we can pass 'total' along with '1', '2', etc.
+  const counts: Record<string, number> = {};
+
   for (let i = 1; i <= 4; i++) {
     const roomName = `level_${i}`;
-    // Socket.io stores room sizes in the adapter
-    counts[i] = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+    counts[i.toString()] = io.sockets.adapter.rooms.get(roomName)?.size || 0;
   }
+
+  // Add the total number of players currently connected to the server
+  counts["total"] = io.engine.clientsCount;
+
   io.emit("room_counts", counts);
 }
 
@@ -84,6 +108,24 @@ io.on("connection", (socket: Socket) => {
     if (!currentRoom) return;
 
     socket.to(currentRoom).emit("phantom_update", { ...data, id: socket.id });
+  });
+
+  socket.on("request_leaderboard", (levelNumber: number) => {
+    const top10 = getTopTimes.all(levelNumber);
+    socket.emit(`leaderboard_data_${levelNumber}`, top10);
+  });
+
+  // Player finishes a track and submits their time
+  socket.on("submit_time", (data: { level: number; name: string; time: number }) => {
+    // Basic anti-cheat: Don't accept impossible times (e.g., under 2 seconds)
+    if (data.time < 2) return;
+
+    // Save to SQLite
+    insertTime.run(data.level, data.name, data.time);
+
+    // Broadcast the updated Top 10 to everyone so the UI updates instantly
+    const updatedTop10 = getTopTimes.all(data.level);
+    io.emit(`leaderboard_data_${data.level}`, updatedTop10);
   });
 
   // 3. Handle disconnections
