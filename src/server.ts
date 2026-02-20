@@ -36,8 +36,23 @@ const io = new Server(server, {
   },
 });
 
+// Helper function to count players and broadcast to all connected clients
+function broadcastCounts() {
+  const counts: Record<number, number> = {};
+  // Assuming you have 4 levels total. Adjust if you have more!
+  for (let i = 1; i <= 4; i++) {
+    const roomName = `level_${i}`;
+    // Socket.io stores room sizes in the adapter
+    counts[i] = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+  }
+  io.emit("room_counts", counts);
+}
+
 io.on("connection", (socket: Socket) => {
   console.log(`Player connected: ${socket.id}`);
+
+  // Immediately tell the new player the current counts
+  broadcastCounts();
 
   // Explicitly type the room variable
   let currentRoom: string | null = null;
@@ -45,12 +60,14 @@ io.on("connection", (socket: Socket) => {
   // 1. Join a specific level
   socket.on("join_level", (levelNumber: string | number) => {
     // Leave previous level if they were in one
+    console.log(`${socket.id} ${currentRoom}`);
     if (currentRoom) {
       socket.leave(currentRoom);
       socket.to(currentRoom).emit("phantom_leave", socket.id);
     }
 
     if (levelNumber === "menu") {
+      broadcastCounts();
       currentRoom = null;
       return;
     }
@@ -58,6 +75,8 @@ io.on("connection", (socket: Socket) => {
     currentRoom = `level_${levelNumber}`;
     socket.join(currentRoom);
     console.log(`${socket.id} joined ${currentRoom}`);
+    // Immediately tell the new player the current counts
+    broadcastCounts();
   });
 
   // 2. Receive position and broadcast to everyone ELSE in the same level
@@ -73,6 +92,8 @@ io.on("connection", (socket: Socket) => {
     if (currentRoom) {
       socket.to(currentRoom).emit("phantom_leave", socket.id);
     }
+    // Immediately tell the new player the current counts
+    broadcastCounts();
   });
 });
 
