@@ -4,9 +4,18 @@ import { Server, Socket } from "socket.io";
 import { PlayerSubmitTime, PlayerUpdateData } from "./types";
 
 import Database from "better-sqlite3";
+import fs from "fs";
+import path from "path";
+
+// 1. Ensure a 'data' directory exists at the root of your app
+const dataDir = path.join(process.cwd(), "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
 // 1. Initialize DB (creates leaderboard.db in your root folder)
-const db = new Database("leaderboard.db");
+const dbPath = path.join(dataDir, "leaderboard.db");
+const db = new Database(dbPath);
 
 // 2. Create the table if it doesn't exist
 db.exec(`
