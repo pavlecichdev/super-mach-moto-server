@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
-const TOTAL_LEVELS = 5;
+const TOTAL_LEVELS = 6;
 
 // 1. Ensure a 'data' directory exists at the root of your app
 const dataDir = path.join(process.cwd(), "data");
