@@ -7,6 +7,8 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
+const TOTAL_LEVELS = 5;
+
 // 1. Ensure a 'data' directory exists at the root of your app
 const dataDir = path.join(process.cwd(), "data");
 if (!fs.existsSync(dataDir)) {
@@ -82,7 +84,7 @@ function broadcastCounts() {
   // Change the record type to string so we can pass 'total' along with '1', '2', etc.
   const counts: Record<string, number> = {};
 
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= TOTAL_LEVELS; i++) {
     const roomName = `level_${i}`;
     counts[i.toString()] = io.sockets.adapter.rooms.get(roomName)?.size || 0;
   }
