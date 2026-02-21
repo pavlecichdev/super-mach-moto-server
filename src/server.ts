@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
-import { PlayerUpdateData } from "./types";
+import { PlayerSubmitTime, PlayerUpdateData } from "./types";
 
 import Database from "better-sqlite3";
 
@@ -13,14 +13,26 @@ db.exec(`
     CREATE TABLE IF NOT EXISTS times (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         level INTEGER,
+        playerId TEXT,
         playerName TEXT,
+        color TEXT,
         time REAL,
-        date_achieved DATETIME DEFAULT CURRENT_TIMESTAMP
+        date_achieved DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(level, playerId) 
     )
 `);
 
 // 3. Prepare our SQL statements for maximum performance
-const insertTime = db.prepare("INSERT INTO times (level, playerName, time) VALUES (?, ?, ?)");
+const insertOrUpdateTime = db.prepare(`
+    INSERT INTO times (level, playerId, playerName, color, time) 
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(level, playerId) DO UPDATE SET 
+        time = excluded.time,
+        playerName = excluded.playerName,
+        color = excluded.color,
+        date_achieved = CURRENT_TIMESTAMP
+    WHERE excluded.time < times.time;
+`);
 const getTopTimes = db.prepare("SELECT playerName, time FROM times WHERE level = ? ORDER BY time ASC LIMIT 10");
 
 const app = express();
@@ -116,12 +128,12 @@ io.on("connection", (socket: Socket) => {
   });
 
   // Player finishes a track and submits their time
-  socket.on("submit_time", (data: { level: number; name: string; time: number }) => {
+  socket.on("submit_time", (data: PlayerSubmitTime) => {
     // Basic anti-cheat: Don't accept impossible times (e.g., under 2 seconds)
     if (data.time < 2) return;
 
     // Save to SQLite
-    insertTime.run(data.level, data.name, data.time);
+    insertOrUpdateTime.run(data.level, data.playerId, data.name, data.color, data.time);
 
     // Broadcast the updated Top 10 to everyone so the UI updates instantly
     const updatedTop10 = getTopTimes.all(data.level);
