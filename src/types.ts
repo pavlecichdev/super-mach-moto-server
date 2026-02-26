@@ -6,6 +6,7 @@ export interface PlayerUpdateData {
   angle: number;
   lean: number;
   playerColor: string;
+  bikeId: string;
 }
 
 export interface PlayerSubmitTime {
@@ -14,4 +15,5 @@ export interface PlayerSubmitTime {
   name: string;
   color: string;
   time: number;
+  bikeId: string;
 }
