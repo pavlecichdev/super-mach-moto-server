@@ -29,4 +29,5 @@ export interface LeaderboardEntry {
 export interface LeaderboardData {
   overall: LeaderboardEntry[];
   weekly: LeaderboardEntry[];
+  totalCompletions: number;
 }
