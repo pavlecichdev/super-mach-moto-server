@@ -2,49 +2,9 @@ import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
 import { PlayerSubmitTime, PlayerUpdateData } from "./types";
-
-import Database from "better-sqlite3";
-import fs from "fs";
-import path from "path";
+import { dbService } from "./DatabaseService";
 
 const TOTAL_LEVELS = 9;
-
-// 1. Ensure a 'data' directory exists at the root of your app
-const dataDir = path.join(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-// 1. Initialize DB (creates leaderboard.db in your root folder)
-const dbPath = path.join(dataDir, "leaderboard.db");
-const db = new Database(dbPath);
-
-// 2. Create the table if it doesn't exist
-db.exec(`
-    CREATE TABLE IF NOT EXISTS times (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        level INTEGER,
-        playerId TEXT,
-        playerName TEXT,
-        color TEXT,
-        time REAL,
-        date_achieved DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(level, playerId) 
-    )
-`);
-
-// 3. Prepare our SQL statements for maximum performance
-const insertOrUpdateTime = db.prepare(`
-    INSERT INTO times (level, playerId, playerName, color, time) 
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(level, playerId) DO UPDATE SET 
-        time = excluded.time,
-        playerName = excluded.playerName,
-        color = excluded.color,
-        date_achieved = CURRENT_TIMESTAMP
-    WHERE excluded.time < times.time;
-`);
-const getTopTimes = db.prepare("SELECT playerName, time FROM times WHERE level = ? ORDER BY time ASC LIMIT 10");
 
 const app = express();
 const server = http.createServer(app);
@@ -134,8 +94,8 @@ io.on("connection", (socket: Socket) => {
   });
 
   socket.on("request_leaderboard", (levelNumber: number) => {
-    const top10 = getTopTimes.all(levelNumber);
-    socket.emit(`leaderboard_data_${levelNumber}`, top10);
+    const leaderboards = dbService.getLeaderboardsForLevel(levelNumber);
+    socket.emit(`leaderboard_data_${levelNumber}`, leaderboards);
   });
 
   // Player finishes a track and submits their time
@@ -144,11 +104,11 @@ io.on("connection", (socket: Socket) => {
     if (data.time < 2) return;
 
     // Save to SQLite
-    insertOrUpdateTime.run(data.level, data.playerId, data.name, data.color, data.time);
+    dbService.saveTimeAndGetLeaderboards(data);
 
     // Broadcast the updated Top 10 to everyone so the UI updates instantly
-    const updatedTop10 = getTopTimes.all(data.level);
-    io.emit(`leaderboard_data_${data.level}`, updatedTop10);
+    const leaderboards = dbService.getLeaderboardsForLevel(data.level);
+    socket.emit(`leaderboard_data_${data.level}`, leaderboards);
   });
 
   // 3. Handle disconnections

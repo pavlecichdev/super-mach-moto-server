@@ -17,3 +17,16 @@ export interface PlayerSubmitTime {
   time: number;
   bikeId: string;
 }
+
+export interface LeaderboardEntry {
+  playerName: string;
+  color: string;
+  bikeId: string;
+  time: number;
+  date_achieved: string; // SQLite returns DATETIME as a string by default
+}
+
+export interface LeaderboardData {
+  overall: LeaderboardEntry[];
+  weekly: LeaderboardEntry[];
+}
