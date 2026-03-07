@@ -4,7 +4,7 @@ import { Server, Socket } from "socket.io";
 import { PlayerSubmitTime, PlayerUpdateData } from "./types";
 import { dbService } from "./DatabaseService";
 
-const TOTAL_LEVELS = 9;
+const TOTAL_LEVELS = 10;
 
 const app = express();
 const server = http.createServer(app);
