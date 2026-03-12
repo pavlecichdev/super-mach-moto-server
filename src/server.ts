@@ -1,37 +1,90 @@
+import * as dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import http from "http";
+import cors from "cors";
 import { Server, Socket } from "socket.io";
 import { PlayerSubmitTime, PlayerUpdateData } from "./types";
 import { dbService } from "./DatabaseService";
 
-const TOTAL_LEVELS = 12;
-
 const app = express();
 const server = http.createServer(app);
 
-// Regex to match exact domain and any subdomains
 const allowedOrigins = [
-  // Production: matches gametje.com and any subdomains (http or https)
   /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*gametje\.com$/,
-
-  // Local Dev: matches http://localhost and http://localhost:5173 (or any port)
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-
-  // Local Network Dev: matches http://192.x.x.x (for testing on your physical phone)
   /^http:\/\/192\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
 ];
 
-// Enable CORS so your Svelte frontend can connect
+// --- NEW: HTTP Middleware ---
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.find((reg) => reg.test(origin))) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  }),
+);
+app.use(express.json()); // Allows Express to parse JSON bodies in POST requests
+
+// --- NEW: HTTP REST Routes ---
+
+// 1. Get Leaderboard (GET Request)
+app.get("/api/v1/leaderboard/:level", async (req, res) => {
+  try {
+    const level = parseInt(req.params.level, 10);
+    const leaderboards = await dbService.getLeaderboardsForLevel(level);
+    res.json(leaderboards);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch leaderboard" });
+  }
+});
+
+app.get("/api/v1/leaderboards", async (req, res) => {
+  try {
+    const allLeaderboards = await dbService.getAllLeaderboards();
+    res.json(allLeaderboards);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch all leaderboards" });
+  }
+});
+
+// 2. Submit Time (POST Request)
+app.post("/api/v1/submitTime", async (req, res) => {
+  try {
+    const data: PlayerSubmitTime = req.body;
+
+    // Save to Postgres
+    const leaderboards = await dbService.saveTimeAndGetLeaderboards(data);
+
+    // Grab the new Top 10
+    //const leaderboards = await dbService.getLeaderboardsForLevel(data.level);
+
+    // MAGIC: We can STILL use Socket.io to broadcast the new leaderboard instantly
+    // to everyone currently looking at that level's screen!
+    io.emit(`leaderboard_data_${data.level}`, leaderboards);
+
+    res.status(200).json(leaderboards);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save time" });
+  }
+});
+
+// --- WebSockets (Real-time Ghosts & Rooms) ---
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      // If there is no origin (e.g., server-to-server requests), block it.
-      // If the origin matches our Regex, allow it.
       if (origin && allowedOrigins.find((reg) => reg.test(origin))) {
         callback(null, true);
       } else {
-        console.warn(`Blocked connection from unauthorized origin: ${origin}`);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -39,17 +92,19 @@ const io = new Server(server, {
   },
 });
 
-// Helper function to count players and broadcast to all connected clients
 function broadcastCounts() {
-  // Change the record type to string so we can pass 'total' along with '1', '2', etc.
   const counts: Record<string, number> = {};
 
-  for (let i = 1; i <= TOTAL_LEVELS; i++) {
-    const roomName = `level_${i}`;
-    counts[i.toString()] = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+  // Iterate over every active room currently tracked by Socket.IO
+  for (const [roomName, room] of io.sockets.adapter.rooms.entries()) {
+    // We only care about our game rooms, not socket ID rooms
+    if (roomName.startsWith("level_")) {
+      const levelId = roomName.replace("level_", "");
+      counts[levelId] = room.size;
+    }
   }
 
-  // Add the total number of players currently connected to the server
+  // Add the total number of connected clients
   counts["total"] = io.engine.clientsCount;
 
   io.emit("room_counts", counts);
@@ -57,73 +112,46 @@ function broadcastCounts() {
 
 io.on("connection", (socket: Socket) => {
   console.log(`Player connected: ${socket.id}`);
-
-  // Immediately tell the new player the current counts
   broadcastCounts();
 
-  // Explicitly type the room variable
   let currentRoom: string | null = null;
 
-  // 1. Join a specific level
   socket.on("join_level", (levelNumber: string | number) => {
-    // Leave previous level if they were in one
-    console.log(`${socket.id} ${currentRoom}`);
     if (currentRoom) {
       socket.leave(currentRoom);
       socket.to(currentRoom).emit("phantom_leave", socket.id);
     }
-
     if (levelNumber === "menu") {
       broadcastCounts();
       currentRoom = null;
       return;
     }
-
     currentRoom = `level_${levelNumber}`;
     socket.join(currentRoom);
-    console.log(`${socket.id} joined ${currentRoom}`);
-    // Immediately tell the new player the current counts
     broadcastCounts();
   });
 
-  // 2. Receive position and broadcast to everyone ELSE in the same level
   socket.on("player_update", (data: PlayerUpdateData) => {
     if (!currentRoom) return;
-
     socket.to(currentRoom).emit("phantom_update", { ...data, id: socket.id });
   });
 
-  socket.on("request_leaderboard", (levelNumber: number) => {
-    const leaderboards = dbService.getLeaderboardsForLevel(levelNumber);
+  socket.on("request_leaderboard", async (levelNumber: number) => {
+    const leaderboards = await dbService.getLeaderboardsForLevel(levelNumber);
     socket.emit(`leaderboard_data_${levelNumber}`, leaderboards);
   });
 
-  // Player finishes a track and submits their time
-  socket.on("submit_time", (data: PlayerSubmitTime) => {
-    // Basic anti-cheat: Don't accept impossible times (e.g., under 2 seconds)
-    if (data.time < 2) return;
-
-    // Save to SQLite
-    dbService.saveTimeAndGetLeaderboards(data);
-
-    // Broadcast the updated Top 10 to everyone so the UI updates instantly
-    const leaderboards = dbService.getLeaderboardsForLevel(data.level);
-    socket.emit(`leaderboard_data_${data.level}`, leaderboards);
-  });
-
-  // 3. Handle disconnections
   socket.on("disconnect", () => {
     console.log(`Player disconnected: ${socket.id}`);
     if (currentRoom) {
       socket.to(currentRoom).emit("phantom_leave", socket.id);
     }
-    // Immediately tell the new player the current counts
     broadcastCounts();
   });
 });
 
-const PORT: string | number = process.env.PORT || 3333;
+const PORT = process.env.PORT || 3333;
 
 server.listen(PORT, () => {
-  console.log(`Multiplayer server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

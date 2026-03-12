@@ -27,6 +27,7 @@ export interface LeaderboardEntry {
 }
 
 export interface LeaderboardData {
+  levelId: number;
   overall: LeaderboardEntry[];
   weekly: LeaderboardEntry[];
   totalCompletions: number;

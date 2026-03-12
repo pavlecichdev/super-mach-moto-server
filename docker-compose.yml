@@ -1,16 +1,27 @@
-version: "3.8"
-
 services:
-  multiplayer:
+  mach-moto-server:
     container_name: mach-moto-server
     build: .
     ports:
-      - 127.0.0.1:3333:3333
+      - "127.0.0.1:3333:3333"
     restart: unless-stopped
+    depends_on:
+      - db
     environment:
       - PORT=3333
       - NODE_ENV=production
+      # This URL tells the Node app how to talk to the 'db' container
+      - DATABASE_URL=postgresql://motouser:${POSTGRES_PWD}@db:5432/motodb
+
+  db:
+    image: postgres:18.3-alpine
+    container_name: mach-moto-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=motouser
+      - POSTGRES_PASSWORD=${POSTGRES_PWD} # Change this in production!
+      - POSTGRES_DB=motodb
     volumes:
-      # THE MAGIC LINE:
-      # Maps the 'data' folder on your VPS to the 'data' folder inside the container
-      - ./data:/usr/src/app/data
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
