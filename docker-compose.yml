@@ -1,3 +1,6 @@
+volumes:
+  mach-moto-postgres18-3:
+
 services:
   mach-moto-server:
     container_name: mach-moto-server
@@ -22,6 +25,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PWD} # Change this in production!
       - POSTGRES_DB=motodb
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - mach-moto-postgres18-3:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432"
