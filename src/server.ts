@@ -10,12 +10,27 @@ import { dbService } from "./DatabaseService";
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = [
+const isProduction = process.env.NODE_ENV === "production";
+
+const allowedOrigins: RegExp[] = [
+  // Your main domain and any subdomains
   /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*gametje\.com$/,
-  /^http:\/\/localhost(:\d+)?$/,
-  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^http:\/\/192\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+
+  // NEW: Any subdomain of crazygames.com (covers game-files.crazygames.com, etc.)
+  /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*crazygames\.com$/,
 ];
+
+// 3. Conditionally push local testing origins ONLY if we are not in production
+if (!isProduction) {
+  allowedOrigins.push(
+    /^http:\/\/localhost(:\d+)?$/,
+    /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^http:\/\/192\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+  );
+  console.log("CORS: Running in Dev mode. Localhost origins allowed.");
+} else {
+  console.log("CORS: Running in STRICT Production mode.");
+}
 
 // --- NEW: HTTP Middleware ---
 app.use(
